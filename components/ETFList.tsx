@@ -5,9 +5,10 @@ import { ETFData } from '../types';
 interface ETFListProps {
   etfs: ETFData[];
   onRemove: (id: string) => void;
+  onSelect: (etf: ETFData) => void;
 }
 
-export const ETFList: React.FC<ETFListProps> = ({ etfs, onRemove }) => {
+export const ETFList: React.FC<ETFListProps> = ({ etfs, onRemove, onSelect }) => {
   if (etfs.length === 0) {
     return <div className="text-sm text-gray-400 mt-2 italic">暂无选中标的</div>;
   }
@@ -17,15 +18,22 @@ export const ETFList: React.FC<ETFListProps> = ({ etfs, onRemove }) => {
       {etfs.map((etf) => (
         <div
           key={etf.id}
-          className="inline-flex items-center pl-2 pr-1 py-1 rounded-md bg-white border border-slate-200 shadow-sm hover:border-slate-300 transition-colors group"
+          className="inline-flex items-center pl-2 pr-1 py-1 rounded-md bg-white border border-slate-200 shadow-sm hover:border-slate-300 hover:shadow-md transition-all group cursor-pointer"
           style={{ borderLeftWidth: '4px', borderLeftColor: etf.color }}
         >
-          <div className="flex items-baseline gap-1.5 mr-2 select-none">
-            <span className="text-sm font-bold text-slate-700">{etf.name}</span>
+          <div 
+            className="flex items-baseline gap-1.5 mr-2 select-none"
+            onClick={() => onSelect(etf)}
+            title="点击查看详情"
+          >
+            <span className="text-sm font-bold text-slate-700 group-hover:text-accent transition-colors">{etf.name}</span>
             <span className="text-xs text-slate-400 font-mono">{etf.code}</span>
           </div>
           <button
-            onClick={() => onRemove(etf.id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove(etf.id);
+            }}
             className="p-0.5 rounded hover:bg-slate-100 text-slate-400 hover:text-red-500 transition-colors"
             title="移除"
           >

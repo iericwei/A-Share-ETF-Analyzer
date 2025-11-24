@@ -1,5 +1,5 @@
 {
-  "name": "A 股市场 ETF 分析工具",
+  "name": "A-Share ETF Analyzer",
   "description": "A professional tool to compare and analyze the 60-day performance trends of China A-Share ETFs using Gemini AI for data simulation and retrieval.",
   "requestFramePermissions": []
 }

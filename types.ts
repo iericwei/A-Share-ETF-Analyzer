@@ -3,6 +3,15 @@ export interface DailyPrice {
   close: number;
 }
 
+export interface ETFProfile {
+  description?: string;
+  manager?: string;
+  fundSize?: string;
+  launchDate?: string;
+  company?: string;
+  trackingIndex?: string;
+}
+
 export interface ETFData {
   id: string; // Unique ID (usually the code)
   code: string;
@@ -10,6 +19,7 @@ export interface ETFData {
   history: DailyPrice[];
   color: string;
   sources?: { title: string; uri: string }[];
+  profile?: ETFProfile;
 }
 
 export interface ChartDataPoint {

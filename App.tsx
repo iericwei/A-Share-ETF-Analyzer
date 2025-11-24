@@ -4,14 +4,34 @@ import { ETFInput } from './components/ETFInput';
 import { ETFList } from './components/ETFList';
 import { PerformanceChart } from './components/PerformanceChart';
 import { ETFTable } from './components/ETFTable';
-import { fetchETFHistory } from './services/geminiService';
+import { ETFDetailModal } from './components/ETFDetailModal';
+import { fetchETFHistory, fetchETFProfile } from './services/geminiService';
 import { ETFData } from './types';
 import { getNextColor } from './utils/colors';
 
+// Helper to get default dates
+const getDefaultDates = () => {
+  const today = new Date();
+  const past = new Date(today);
+  past.setDate(today.getDate() - 60);
+  return {
+    start: past.toISOString().split('T')[0],
+    end: today.toISOString().split('T')[0]
+  };
+};
+
 const App: React.FC = () => {
+  const defaultDates = getDefaultDates();
+  const [dateRange, setDateRange] = useState<{start: string, end: string}>(defaultDates);
+  
   const [etfs, setEtfs] = useState<ETFData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  
+  // Modal State
+  const [selectedEtfId, setSelectedEtfId] = useState<string | null>(null);
+  const [isFetchingProfile, setIsFetchingProfile] = useState(false);
 
   const handleAddETF = useCallback(async (codeOrName: string) => {
     setIsLoading(true);
@@ -25,7 +45,8 @@ const App: React.FC = () => {
         throw new Error("该 ETF 已经在列表中");
       }
 
-      const data = await fetchETFHistory(codeOrName);
+      // Use current date range
+      const data = await fetchETFHistory(codeOrName, dateRange.start, dateRange.end);
       
       // Double check existence by returned code
       if (etfs.some(e => e.code === data.code)) {
@@ -47,11 +68,81 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [etfs]);
+  }, [etfs, dateRange]);
+
+  // Centralized refresh logic that accepts an optional override for dates
+  // This allows us to refresh with new dates before the state effectively updates in some scenarios,
+  // or just refresh current state.
+  const refreshData = async (targetStart: string, targetEnd: string) => {
+    if (etfs.length === 0) return;
+    setIsRefreshing(true);
+    setError(null);
+    
+    try {
+      const promises = etfs.map(async (currentEtf) => {
+        try {
+          // Use code for precise re-fetching with target dates
+          const data = await fetchETFHistory(currentEtf.code, targetStart, targetEnd);
+          return {
+            ...currentEtf,
+            history: data.history,
+            sources: data.sources,
+            name: data.name // Update name in case it was corrected
+          };
+        } catch (e) {
+          console.error(`Failed to refresh ${currentEtf.name}`, e);
+          // If refresh fails, keep old data
+          return currentEtf;
+        }
+      });
+
+      const updatedEtfs = await Promise.all(promises);
+      setEtfs(updatedEtfs);
+    } catch (err: any) {
+      setError("刷新数据失败，请检查网络后重试");
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleRefreshAll = useCallback(() => {
+    refreshData(dateRange.start, dateRange.end);
+  }, [etfs, dateRange]);
+
+  const handleDateChange = useCallback((start: string, end: string) => {
+    setDateRange({ start, end });
+    // Trigger a refresh with the NEW dates immediately
+    // We pass them explicitly because the setDateRange state update might not be reflected yet in the closure
+    refreshData(start, end);
+  }, [etfs]); // depend on etfs so we can refresh them
 
   const handleRemoveETF = useCallback((id: string) => {
     setEtfs(prev => prev.filter(e => e.id !== id));
+    if (selectedEtfId === id) setSelectedEtfId(null);
+  }, [selectedEtfId]);
+
+  const handleSelectETF = useCallback(async (etf: ETFData) => {
+    setSelectedEtfId(etf.id);
+    
+    // If profile is missing, fetch it
+    if (!etf.profile) {
+      setIsFetchingProfile(true);
+      try {
+        const profile = await fetchETFProfile(etf.code, etf.name);
+        
+        // Update etfs state with new profile to cache it
+        setEtfs(prev => prev.map(item => 
+          item.id === etf.id ? { ...item, profile } : item
+        ));
+      } catch (e) {
+        console.error("Error fetching profile", e);
+      } finally {
+        setIsFetchingProfile(false);
+      }
+    }
   }, []);
+
+  const selectedEtf = etfs.find(e => e.id === selectedEtfId) || null;
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -98,13 +189,24 @@ const App: React.FC = () => {
               
               <div className="flex-1">
                 <span className="text-sm text-gray-400">已选标的:</span>
-                <ETFList etfs={etfs} onRemove={handleRemoveETF} />
+                <ETFList 
+                  etfs={etfs} 
+                  onRemove={handleRemoveETF} 
+                  onSelect={handleSelectETF}
+                />
               </div>
             </div>
           </div>
 
           {/* Visualization */}
-          <PerformanceChart etfs={etfs} />
+          <PerformanceChart 
+            etfs={etfs} 
+            onRefresh={handleRefreshAll}
+            isRefreshing={isRefreshing}
+            startDate={dateRange.start}
+            endDate={dateRange.end}
+            onDateChange={handleDateChange}
+          />
 
           {/* Data Table */}
           <ETFTable etfs={etfs} />
@@ -119,9 +221,9 @@ const App: React.FC = () => {
             </p>
           </div>
           <div className="p-4 bg-green-50 rounded-lg border border-green-100">
-            <h3 className="font-semibold text-green-900 mb-2">多维度对比</h3>
+            <h3 className="font-semibold text-green-900 mb-2">灵活周期</h3>
             <p className="text-sm text-green-700">
-              在“涨跌幅百分比”和“单位净值”两种模式间切换，表格展示最新价及60日极值。
+              支持自定义分析的时间范围，既可查看短期波动，也可分析中期趋势。
             </p>
           </div>
           <div className="p-4 bg-purple-50 rounded-lg border border-purple-100">
@@ -132,6 +234,14 @@ const App: React.FC = () => {
           </div>
         </div>
       </main>
+      
+      {/* Modal */}
+      <ETFDetailModal 
+        etf={selectedEtf}
+        isOpen={!!selectedEtf}
+        isLoading={isFetchingProfile}
+        onClose={() => setSelectedEtfId(null)}
+      />
     </div>
   );
 };
